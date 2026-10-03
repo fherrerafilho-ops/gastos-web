@@ -1,5 +1,5 @@
 /* Gastos do Mês — service worker: funciona offline depois da primeira abertura. */
-const VERSAO = 'gastos-v1';
+const VERSAO = 'gastos-v2';   // mude a cada atualização do site: o iPhone troca os arquivos guardados
 const ARQUIVOS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 
 self.addEventListener('install', e => {

@@ -254,13 +254,15 @@ h2.secao { font: 700 13px/1.2 var(--f-body); letter-spacing: .07em; text-transfo
 /* ---------- folha (formulário) ---------- */
 .veu { position: fixed; inset: 0; z-index: 40; background: rgba(8, 10, 14, .5); display: flex; align-items: flex-end; justify-content: center; }
 .folha {
-  background: var(--bg); width: 100%; max-width: 560px; max-height: 94vh; overflow-y: auto;
+  background: var(--bg); width: 100%; max-width: 560px; max-height: 94vh; overflow-y: auto; overscroll-behavior: contain;
   border-radius: 22px 22px 0 0; padding: 8px 16px calc(20px + env(safe-area-inset-bottom, 0px));
   animation: sobe .22s ease-out;
 }
 @keyframes sobe { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .folha { animation: none; } .barra > i { transition: none; } }
-.pegador { width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: 4px auto 10px; }
+/* barrinha de puxar: a área de toque é bem maior que o desenho */
+.pegador { width: 44px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--muted) 45%, transparent); margin: 4px auto 10px; position: relative; touch-action: none; cursor: grab; }
+.pegador::before { content: ""; position: absolute; inset: -14px -80px; }
 .folha h2 { font: 700 22px/1.2 var(--f-display); margin: 0 0 12px; }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
 .seg.quebra { grid-auto-flow: row; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); }
@@ -779,9 +781,64 @@ async function infoArmazenamento() {
 /* ---------------- folha: adicionar / editar ---------------- */
 function abrirFolha(html, aoMontar) {
   const c = $('#camada');
-  c.innerHTML = `<div class="veu" data-fechar="1"><div class="folha" role="dialog" aria-modal="true"><div class="pegador"></div>${html}</div></div>`;
+  c.innerHTML = `<div class="veu" data-fechar="1"><div class="folha" role="dialog" aria-modal="true"><div class="pegador" aria-hidden="true"></div>${html}</div></div>`;
   document.body.style.overflow = 'hidden';
-  if (aoMontar) aoMontar(c.querySelector('.folha'));
+  const folha = c.querySelector('.folha');
+  arrastarParaFechar(folha);
+  if (aoMontar) aoMontar(folha);
+}
+
+/**
+ * Puxar para baixo fecha a folha: pela barrinha (ou o topo da folha) a qualquer momento,
+ * ou por qualquer ponto quando o conteúdo já está no início. Puxão curto: a folha volta ao lugar.
+ */
+function arrastarParaFechar(folha) {
+  const veu = folha.parentElement;
+  let y0 = null, x0 = 0, dy = 0, pelaAlca = false, arrastando = false, yAnt = 0, tAnt = 0, vel = 0;
+  folha.addEventListener('touchstart', ev => {
+    y0 = null;
+    if (ev.touches.length !== 1) return;
+    const toque = ev.touches[0];
+    pelaAlca = toque.clientY - folha.getBoundingClientRect().top < 56;
+    if (!pelaAlca && folha.scrollTop > 0) return;   // conteúdo rolado: o gesto é rolagem normal
+    y0 = yAnt = toque.clientY; x0 = toque.clientX; tAnt = Date.now(); dy = 0; vel = 0; arrastando = false;
+  }, { passive: true });
+  folha.addEventListener('touchmove', ev => {
+    if (y0 === null) return;
+    const y = ev.touches[0].clientY, d = y - y0, dx = ev.touches[0].clientX - x0;
+    if (!arrastando) {
+      if (Math.abs(d) < 6 && Math.abs(dx) < 6) return;                   // ainda não dá para saber a direção
+      if (d <= 0 || Math.abs(dx) > Math.abs(d)) { y0 = null; return; }   // para cima ou para o lado: rolagem normal
+      arrastando = true;
+      folha.style.animation = 'none';
+      folha.style.transition = 'none';
+      if (document.activeElement && folha.contains(document.activeElement)) document.activeElement.blur();
+    }
+    if (ev.cancelable) ev.preventDefault();
+    const agora = Date.now();
+    if (agora > tAnt) { vel = (y - yAnt) / (agora - tAnt); yAnt = y; tAnt = agora; }
+    dy = Math.max(0, d);
+    folha.style.transform = `translateY(${dy}px)`;
+    veu.style.background = `rgba(8, 10, 14, ${(0.5 * Math.max(0, 1 - dy / folha.offsetHeight)).toFixed(3)})`;
+  }, { passive: false });
+  const soltar = () => {
+    const estava = arrastando;
+    y0 = null; arrastando = false;
+    if (!estava) return;
+    folha.style.transition = 'transform .2s ease-out';
+    veu.style.transition = 'background .2s ease-out';
+    if (Date.now() - tAnt > 100) vel = 0;   // o dedo parou antes de soltar: não foi um "peteleco"
+    if (dy > Math.min(160, folha.offsetHeight * 0.3) || (dy > 30 && vel > 0.5)) {
+      folha.style.transform = `translateY(${folha.offsetHeight}px)`;
+      veu.style.background = 'rgba(8, 10, 14, 0)';
+      setTimeout(() => { if (folha.isConnected) fecharFolha(); }, 200);
+    } else {
+      folha.style.transform = '';
+      veu.style.background = '';
+    }
+  };
+  folha.addEventListener('touchend', soltar);
+  folha.addEventListener('touchcancel', soltar);
 }
 function fecharFolha() {
   $('#camada').innerHTML = '';
